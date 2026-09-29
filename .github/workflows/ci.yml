@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: https://npm.pkg.github.com
+          scope: '@meeeeeeeeeeeeeeepo'
+      - name: Install
+        run: npm ci
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Lint
+        run: npm run lint
+      - name: Test
+        run: npm test
+      - name: Smoke-start server
+        run: |
+          NODE_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN }} node src/server.js &
+          SERVER_PID=$!
+          sleep 2
+          curl -sf -X POST http://localhost:4000/graphql -H 'content-type: application/json' \
+            -d '{"query":"{ health { status } }"}' | tee /tmp/health.json
+          grep -q '"status":"ok"' /tmp/health.json
+          kill $SERVER_PID
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-src
+          path: |
+            src
+            package.json

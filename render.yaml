@@ -1,0 +1,28 @@
+# Render blueprint — backend GraphQL service, with production + staging environments.
+services:
+  - type: web
+    name: restaurant-backend-prod
+    runtime: node
+    plan: free
+    branch: main
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /graphql?query=%7Bhealth%7Bstatus%7D%7D
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_AUTH_TOKEN
+        sync: false   # GitHub Packages read token, set in Render dashboard
+  - type: web
+    name: restaurant-backend-staging
+    runtime: node
+    plan: free
+    branch: develop
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /graphql?query=%7Bhealth%7Bstatus%7D%7D
+    envVars:
+      - key: NODE_ENV
+        value: staging
+      - key: NODE_AUTH_TOKEN
+        sync: false
