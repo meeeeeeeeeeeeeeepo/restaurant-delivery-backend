@@ -1,0 +1,71 @@
+name: CD
+
+on:
+  release:
+    types: [published]        # cutting a release deploys production
+  push:
+    branches: [develop]       # pushing develop deploys staging
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        options: [staging, production]
+        default: staging
+
+permissions:
+  contents: read
+  deployments: write
+
+concurrency: cd-${{ github.ref }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve target environment
+        id: t
+        run: |
+          if [ "${{ github.event_name }}" = "release" ] || [ "${{ inputs.environment }}" = "production" ]; then
+            echo "env=production" >> $GITHUB_OUTPUT
+            echo "service=srv-daus6mvpn0mc738uq2i0" >> $GITHUB_OUTPUT
+            echo "url=https://restaurant-backend-prod.onrender.com/graphql" >> $GITHUB_OUTPUT
+          else
+            echo "env=staging" >> $GITHUB_OUTPUT
+            echo "service=srv-daus6mvpn0mc738uq2jg" >> $GITHUB_OUTPUT
+            echo "url=https://restaurant-backend-staging.onrender.com/graphql" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create GitHub deployment
+        id: dep
+        run: |
+          id=$(curl -sf -X POST             -H "Authorization: Bearer ${{ github.token }}"             -H "Accept: application/vnd.github+json"             https://api.github.com/repos/${{ github.repository }}/deployments             -d "{\"ref\":\"${{ github.sha }}\",\"environment\":\"${{ steps.t.outputs.env }}\",\"auto_merge\":false,\"required_contexts\":[],\"description\":\"Render deploy via GitHub Actions\"}" | jq -r .id)
+          echo "id=$id" >> $GITHUB_OUTPUT
+
+      - name: Trigger Render deploy
+        id: render
+        run: |
+          did=$(curl -sf -X POST             -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}"             -H "Content-Type: application/json"             "https://api.render.com/v1/services/${{ steps.t.outputs.service }}/deploys"             -d '{"clearCache":"do_not_clear"}' | jq -r .id)
+          echo "did=$did" >> $GITHUB_OUTPUT
+          echo "Triggered Render deploy $did for ${{ steps.t.outputs.env }}"
+
+      - name: Wait for Render deploy to go live
+        id: wait
+        run: |
+          ok=false
+          for i in $(seq 1 50); do
+            st=$(curl -sf -H "Authorization: Bearer ${{ secrets.RENDER_API_KEY }}"               "https://api.render.com/v1/services/${{ steps.t.outputs.service }}/deploys/${{ steps.render.outputs.did }}" | jq -r .status)
+            echo "deploy status: $st"
+            case "$st" in
+              live) ok=true; break;;
+              build_failed|update_failed|canceled|deactivated|pre_deploy_failed) ok=false; break;;
+            esac
+            sleep 15
+          done
+          echo "ok=$ok" >> $GITHUB_OUTPUT
+
+      - name: Report deployment status
+        run: |
+          state=$([ "${{ steps.wait.outputs.ok }}" = "true" ] && echo success || echo failure)
+          curl -sf -X POST             -H "Authorization: Bearer ${{ github.token }}"             -H "Accept: application/vnd.github+json"             https://api.github.com/repos/${{ github.repository }}/deployments/${{ steps.dep.outputs.id }}/statuses             -d "{\"state\":\"$state\",\"environment\":\"${{ steps.t.outputs.env }}\",\"environment_url\":\"${{ steps.t.outputs.url }}\",\"description\":\"Render deploy $state\"}"
+          [ "$state" = "success" ]
