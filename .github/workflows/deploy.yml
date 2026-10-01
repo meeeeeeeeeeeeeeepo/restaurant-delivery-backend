@@ -2,9 +2,11 @@ name: CD
 
 on:
   release:
-    types: [published]        # cutting a release deploys production
+    types: [published]            # publishing a release deploys production
+  repository_dispatch:
+    types: [promote-to-prod]      # Slack "Promote to Production" button deploys production
   push:
-    branches: [develop]       # pushing develop deploys staging
+    branches: [develop]           # pushing develop deploys staging
   workflow_dispatch:
     inputs:
       environment:
@@ -26,7 +28,12 @@ jobs:
       - name: Resolve target environment
         id: t
         run: |
-          if [ "${{ github.event_name }}" = "release" ] || [ "${{ inputs.environment }}" = "production" ]; then
+          case "${{ github.event_name }}" in
+            release|repository_dispatch) PROD=1 ;;
+            workflow_dispatch) [ "${{ inputs.environment }}" = "production" ] && PROD=1 || PROD=0 ;;
+            *) PROD=0 ;;
+          esac
+          if [ "$PROD" = "1" ]; then
             echo "env=production" >> $GITHUB_OUTPUT
             echo "service=srv-daus6mvpn0mc738uq2i0" >> $GITHUB_OUTPUT
             echo "url=https://restaurant-backend-prod.onrender.com/graphql" >> $GITHUB_OUTPUT
@@ -35,11 +42,12 @@ jobs:
             echo "service=srv-daus6mvpn0mc738uq2jg" >> $GITHUB_OUTPUT
             echo "url=https://restaurant-backend-staging.onrender.com/graphql" >> $GITHUB_OUTPUT
           fi
+          echo "requested_by=${{ github.event.client_payload.requested_by || github.actor }}" >> $GITHUB_OUTPUT
 
       - name: Create GitHub deployment
         id: dep
         run: |
-          id=$(curl -sf -X POST             -H "Authorization: Bearer ${{ github.token }}"             -H "Accept: application/vnd.github+json"             https://api.github.com/repos/${{ github.repository }}/deployments             -d "{\"ref\":\"${{ github.sha }}\",\"environment\":\"${{ steps.t.outputs.env }}\",\"auto_merge\":false,\"required_contexts\":[],\"description\":\"Render deploy via GitHub Actions\"}" | jq -r .id)
+          id=$(curl -sf -X POST             -H "Authorization: Bearer ${{ github.token }}"             -H "Accept: application/vnd.github+json"             https://api.github.com/repos/${{ github.repository }}/deployments             -d "{\"ref\":\"${{ github.sha }}\",\"environment\":\"${{ steps.t.outputs.env }}\",\"auto_merge\":false,\"required_contexts\":[],\"description\":\"Deploy via ${{ github.event_name }} (by ${{ steps.t.outputs.requested_by }})\"}" | jq -r .id)
           echo "id=$id" >> $GITHUB_OUTPUT
 
       - name: Trigger Render deploy
@@ -74,7 +82,4 @@ jobs:
         if: always()
         run: |
           state=$([ "${{ steps.wait.outputs.ok }}" = "true" ] && echo ":white_check_mark: succeeded" || echo ":x: failed")
-          curl -sf -X POST -H "Content-Type: application/json" \
-            "${{ secrets.SLACK_WORKFLOW_WEBHOOK }}" \
-            -d "{\"message\":\":rocket: *${{ github.repository }}* → *${{ steps.t.outputs.env }}* deploy $state — ${{ steps.t.outputs.url }} (commit ${{ github.sha }})\"}" \
-            || echo "Slack workflow webhook post failed (non-fatal)"
+          curl -sf -X POST -H "Content-Type: application/json"             "${{ secrets.SLACK_WORKFLOW_WEBHOOK }}"             -d "{\"message\":\":rocket: *${{ github.repository }}* → *${{ steps.t.outputs.env }}* deploy $state (by ${{ steps.t.outputs.requested_by }}, ${{ github.event_name }}) — ${{ steps.t.outputs.url }}\"}"             || echo "Slack workflow webhook post failed (non-fatal)"

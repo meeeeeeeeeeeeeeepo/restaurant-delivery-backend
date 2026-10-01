@@ -1,4 +1,6 @@
-# Render blueprint — backend GraphQL service, with production + staging environments.
+# Render blueprint — backend (SQLite + REST + MCP + GraphQL), production + staging.
+# Note: Render's free tier has an ephemeral filesystem, so the SQLite file resets
+# on restart/redeploy. For durable data, attach a Render Disk and point DB_PATH at it.
 services:
   - type: web
     name: restaurant-backend-prod
@@ -7,12 +9,14 @@ services:
     branch: main
     buildCommand: npm ci
     startCommand: npm start
-    healthCheckPath: /graphql?query=%7Bhealth%7Bstatus%7D%7D
+    healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
+      - key: DB_PATH
+        value: ./data/restaurant.db
       - key: NODE_AUTH_TOKEN
-        sync: false   # GitHub Packages read token, set in Render dashboard
+        sync: false
   - type: web
     name: restaurant-backend-staging
     runtime: node
@@ -20,9 +24,11 @@ services:
     branch: develop
     buildCommand: npm ci
     startCommand: npm start
-    healthCheckPath: /graphql?query=%7Bhealth%7Bstatus%7D%7D
+    healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: staging
+      - key: DB_PATH
+        value: ./data/restaurant.db
       - key: NODE_AUTH_TOKEN
         sync: false
