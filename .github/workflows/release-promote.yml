@@ -1,0 +1,42 @@
+name: Release — promote staging to production
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version tag (e.g. v1.2.0)"
+        required: true
+        default: v1.1.0
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  open-release-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Open release PR (develop → main)
+        id: pr
+        run: |
+          body="Automated **release ${{ inputs.version }}** promoting the validated staging build on \`develop\` to production (\`main\`).\n\nMerging this PR (after code review) cuts release \`${{ inputs.version }}\` and triggers the production deploy."
+          resp=$(curl -s -X POST \
+            -H "Authorization: Bearer ${{ github.token }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/pulls \
+            -d "{\"title\":\"Release ${{ inputs.version }}: promote staging → production\",\"head\":\"develop\",\"base\":\"main\",\"body\":\"$body\"}")
+          url=$(echo "$resp" | jq -r '.html_url // empty')
+          num=$(echo "$resp" | jq -r '.number // empty')
+          if [ -z "$url" ]; then
+            echo "Could not open release PR: $(echo "$resp" | jq -r '.message // .errors' )"
+          else
+            echo "Opened release PR #$num: $url"
+            curl -sf -X POST -H "Authorization: Bearer ${{ github.token }}" \
+              -H "Accept: application/vnd.github+json" \
+              https://api.github.com/repos/${{ github.repository }}/issues/$num/labels \
+              -d '{"labels":["release"]}' || true
+          fi
