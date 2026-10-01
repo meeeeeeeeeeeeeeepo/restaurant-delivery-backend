@@ -1,18 +1,21 @@
 {
   "name": "restaurant-delivery-backend",
-  "version": "1.0.0",
-  "description": "GraphQL API (graphql-yoga) implementing the restaurant delivery schema",
+  "version": "1.1.0",
+  "description": "Restaurant delivery API \u2014 SQLite, REST admin routes, MCP for chatbot ordering, and GraphQL",
   "type": "module",
   "main": "src/server.js",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=22 <23"
+  },
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "test": "node --test",
-    "lint": "node --check src/server.js && node --check src/schema.js && node --check src/resolvers.js"
+    "lint": "node --check src/server.js && node --check src/db.js && node --check src/rest.js && node --check src/mcp.js && node --check src/schema.js && node --check src/resolvers.js"
   },
   "dependencies": {
     "@meeeeeeeeeeeeeeepo/restaurant-schema": "0.1.0",
+    "express": "^4.19.2",
     "graphql": "^16.9.0",
     "graphql-yoga": "^5.7.0"
   }
