@@ -5,6 +5,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 import * as store from "./db.js";
+import { track, trackError } from "./observability.js";
 
 function buildServer() {
   const server = new McpServer({ name: "restaurant-delivery-mcp", version: "1.1.0" });
@@ -45,10 +46,12 @@ function buildServer() {
     async ({ items, customer }) => {
       try {
         const order = store.createOrder({ items, customer });
+        track("order_placed", { order_id: order.id, total: order.total, channel: "mcp", item_count: order.items?.length });
         const text = `✅ Order ${order.id} confirmed. Total £${order.total.toFixed(2)} ` +
           `(subtotal £${order.subtotal.toFixed(2)}, delivery £${order.deliveryFee.toFixed(2)}). ETA ${order.etaMinutes} min.`;
         return { content: [{ type: "text", text }] };
       } catch (e) {
+        trackError(e, { tool: "place_order" });
         return { content: [{ type: "text", text: `Error: ${e.message}` }], isError: true };
       }
     },

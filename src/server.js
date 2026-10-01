@@ -3,6 +3,7 @@ import { createYoga } from "graphql-yoga";
 import { schema } from "./schema.js";
 import { rest } from "./rest.js";
 import { mcpHandler } from "./mcp.js";
+import { track, trackError, shutdownObservability } from "./observability.js";
 import "./db.js"; // initialise + seed SQLite on boot
 
 const app = express();
@@ -24,7 +25,25 @@ app.get("/", (_req, res) =>
   })
 );
 
+// Error-tracking middleware — must be registered last so it catches route errors.
+app.use((err, req, res, _next) => {
+  trackError(err, { route: req.originalUrl, method: req.method });
+  console.error("unhandled error:", err);
+  if (res.headersSent) return;
+  res.status(500).json({ error: "internal server error" });
+});
+
+// Last-resort process-level capture.
+process.on("uncaughtException", (err) => { trackError(err, { kind: "uncaughtException" }); });
+process.on("unhandledRejection", (reason) => {
+  trackError(reason instanceof Error ? reason : new Error(String(reason)), { kind: "unhandledRejection" });
+});
+for (const sig of ["SIGTERM", "SIGINT"]) {
+  process.on(sig, async () => { await shutdownObservability(); process.exit(0); });
+}
+
 const port = process.env.PORT || 4000;
-app.listen(port, () =>
-  console.log(`restaurant-delivery-backend on :${port} — REST /api · GraphQL /graphql · MCP /mcp (SQLite)`)
-);
+app.listen(port, () => {
+  track("backend_started", { port: Number(port) });
+  console.log(`restaurant-delivery-backend on :${port} — REST /api · GraphQL /graphql · MCP /mcp (SQLite)`);
+});

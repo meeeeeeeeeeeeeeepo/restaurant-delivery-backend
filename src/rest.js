@@ -1,5 +1,6 @@
 import { Router } from "express";
 import * as store from "./db.js";
+import { track, trackError } from "./observability.js";
 
 export const rest = Router();
 
@@ -48,13 +49,31 @@ rest.put("/hours/:day", (req, res) => {
 });
 
 // ---- sales report (powers the self-writing Sales Canvas) ----
-rest.get("/reports/sales", (_req, res) => res.json(store.salesReport()));
+rest.get("/reports/sales", (req, res) => {
+  const report = store.salesReport();
+  track("sales_report_generated", {
+    source: req.query.source || "rest",
+    revenue: report.revenue,
+    orders: report.orders,
+    wow_change_pct: report.wowChangePct,
+    top_item: report.topItems?.[0]?.name,
+  });
+  res.json(report);
+});
 
 // ---- orders ----
 rest.post("/orders", (req, res) => {
   try {
-    res.status(201).json(store.createOrder(req.body ?? {}));
+    const order = store.createOrder(req.body ?? {});
+    track("order_placed", {
+      order_id: order.id,
+      total: order.total,
+      channel: req.body?.channel || "rest",
+      item_count: order.items?.length,
+    });
+    res.status(201).json(order);
   } catch (e) {
+    trackError(e, { route: "/api/orders" });
     res.status(400).json({ error: e.message });
   }
 });
