@@ -1,5 +1,6 @@
 import { Router } from "express";
 import * as store from "./db.js";
+import * as support from "./support.js";
 import { track, trackError } from "./observability.js";
 
 export const rest = Router();
@@ -60,6 +61,35 @@ rest.get("/reports/sales", (req, res) => {
   });
   res.json(report);
 });
+
+// ---- support desk ----
+// customer posts a message from the app (creates ticket on first message)
+rest.post("/support", async (req, res) => {
+  try {
+    const { ticket_id, name, message } = req.body ?? {};
+    res.status(201).json(await support.customerMessage({ ticket_id, name, message }));
+  } catch (e) {
+    trackError(e, { route: "/api/support" });
+    res.status(400).json({ error: e.message });
+  }
+});
+// customer app polls the conversation
+rest.get("/support/:ticket", (req, res) => {
+  const ticket = support.getTicket(req.params.ticket);
+  if (!ticket) return res.status(404).json({ error: "ticket not found" });
+  res.json({ ticket, messages: support.listMessages(req.params.ticket) });
+});
+// staff reply arriving from Slack (stored only; not re-pushed to Slack)
+rest.post("/support/:ticket/reply", (req, res) => {
+  try {
+    const { author, text } = req.body ?? {};
+    res.json(support.staffReply(req.params.ticket, { author, text }));
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+// staff-wide list
+rest.get("/support", (_req, res) => res.json({ tickets: support.listTickets() }));
 
 // ---- orders ----
 rest.post("/orders", (req, res) => {
