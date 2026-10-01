@@ -47,6 +47,9 @@ rest.put("/hours/:day", (req, res) => {
   res.json(store.setHours(req.params.day, req.body ?? {}));
 });
 
+// ---- sales report (powers the self-writing Sales Canvas) ----
+rest.get("/reports/sales", (_req, res) => res.json(store.salesReport()));
+
 // ---- orders ----
 rest.post("/orders", (req, res) => {
   try {

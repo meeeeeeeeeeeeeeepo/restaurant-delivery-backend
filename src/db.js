@@ -164,3 +164,83 @@ export const getOrder = (id) => {
     subtotal: r.subtotal, deliveryFee: r.delivery_fee, total: r.total, etaMinutes: r.eta_minutes,
   };
 };
+
+// ---- synthetic order history + sales reporting (for the self-writing Sales Canvas) ----
+function seedOrders() {
+  if (db.prepare("SELECT COUNT(*) AS n FROM orders").get().n > 0) return;
+  const menu = listMenu();
+  const byId = Object.fromEntries(menu.map((m) => [m.id, m]));
+  // popularity weights — Carbonara (m6) the star, Panna Cotta (m9) dead weight
+  const weights = { m6: 10, m3: 8, m4: 6, m7: 5, m5: 4, m1: 3, m2: 3, m8: 3, m10: 4, m11: 3, m9: 0 };
+  const pool = [];
+  for (const [id, w] of Object.entries(weights)) if (byId[id]) for (let i = 0; i < w; i++) pool.push(id);
+  let seed = 42;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  const day = 86400000, now = Date.now();
+  const ins = db.prepare(
+    "INSERT INTO orders (id,created_at,status,customer,items,subtotal,delivery_fee,total,eta_minutes) VALUES (?,?,?,?,?,?,?,?,?)",
+  );
+  let c = 0;
+  for (let d = 13; d >= 0; d--) {
+    const base = d < 7 ? 5 : 3; // more orders this week than last -> positive WoW
+    const count = base + Math.floor(rnd() * 3);
+    for (let k = 0; k < count; k++) {
+      const ts = now - d * day - Math.floor(rnd() * day);
+      const nItems = 1 + Math.floor(rnd() * 3);
+      const items = []; let subtotal = 0;
+      for (let j = 0; j < nItems; j++) {
+        const m = byId[pool[Math.floor(rnd() * pool.length)]];
+        const qty = 1 + Math.floor(rnd() * 2);
+        subtotal += m.price * qty;
+        items.push({ id: m.id, name: m.name, qty, price: m.price });
+      }
+      const fee = subtotal >= 25 ? 0 : 2.99;
+      ins.run(`ord_seed_${c++}`, new Date(ts).toISOString(), "DELIVERED",
+        JSON.stringify({ name: "Seed Customer", address: "—", phone: "—" }),
+        JSON.stringify(items), Number(subtotal.toFixed(2)), fee, Number((subtotal + fee).toFixed(2)), 35);
+    }
+  }
+  console.log(`seeded ${c} historical orders for sales reporting`);
+}
+seedOrders();
+
+export function salesReport() {
+  const day = 86400000, now = Date.now();
+  const orders = db.prepare("SELECT created_at, items, total FROM orders").all()
+    .map((r) => ({ t: Date.parse(r.created_at), items: JSON.parse(r.items), total: r.total }));
+  const rev = (a) => a.reduce((s, o) => s + o.total, 0);
+  const thisWeek = orders.filter((o) => o.t >= now - 7 * day);
+  const lastWeek = orders.filter((o) => o.t < now - 7 * day && o.t >= now - 14 * day);
+  const revThis = rev(thisWeek), revLast = rev(lastWeek);
+  const wow = revLast > 0 ? Number((((revThis - revLast) / revLast) * 100).toFixed(1)) : null;
+
+  const agg = {};
+  for (const o of thisWeek) for (const li of o.items) {
+    agg[li.name] = agg[li.name] || { name: li.name, qty: 0, revenue: 0 };
+    agg[li.name].qty += li.qty; agg[li.name].revenue += li.price * li.qty;
+  }
+  const sold = Object.values(agg).map((x) => ({ ...x, revenue: Number(x.revenue.toFixed(2)) }))
+    .sort((a, b) => b.revenue - a.revenue);
+  const soldNames = new Set(sold.map((s) => s.name));
+  const zero = listMenu().filter((m) => !soldNames.has(m.name)).map((m) => ({ name: m.name, qty: 0, revenue: 0 }));
+  const deadWeight = (zero.length ? zero : sold.slice(-3).reverse()).slice(0, 5);
+
+  const daily = [];
+  for (let i = 6; i >= 0; i--) {
+    const start = now - (i + 1) * day, end = now - i * day;
+    daily.push({
+      label: new Date(end).toLocaleDateString("en-GB", { weekday: "short" }),
+      value: Number(rev(orders.filter((o) => o.t >= start && o.t < end)).toFixed(2)),
+    });
+  }
+  return {
+    generatedAt: new Date().toISOString(),
+    revenue: Number(revThis.toFixed(2)),
+    orders: thisWeek.length,
+    revenueLastWeek: Number(revLast.toFixed(2)),
+    wowChangePct: wow,
+    topItems: sold.slice(0, 5),
+    deadWeight,
+    dailyRevenue: daily,
+  };
+}
