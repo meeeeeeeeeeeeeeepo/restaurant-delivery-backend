@@ -24,3 +24,7 @@ npm test
 
 `render.yaml` defines **production** (`main`) and **staging** (`develop`) web services.
 Set `NODE_AUTH_TOKEN` (GitHub Packages read token) in each service's environment.
+
+## Release notes
+
+- v1.1.0: GraphQL delivery API — menu, filtering, orders. Promoted from staging via the Slack ChatOps button.
