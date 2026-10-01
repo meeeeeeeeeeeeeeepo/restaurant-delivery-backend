@@ -1,10 +1,12 @@
 {
   "name": "restaurant-delivery-backend",
   "version": "1.1.0",
-  "description": "Restaurant delivery API — SQLite, REST admin routes, MCP for chatbot ordering, and GraphQL",
+  "description": "Restaurant delivery API \u2014 SQLite, REST admin routes, MCP for chatbot ordering, and GraphQL",
   "type": "module",
   "main": "src/server.js",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22 <23"
+  },
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
