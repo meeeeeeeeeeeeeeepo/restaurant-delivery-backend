@@ -69,3 +69,12 @@ jobs:
           state=$([ "${{ steps.wait.outputs.ok }}" = "true" ] && echo success || echo failure)
           curl -sf -X POST             -H "Authorization: Bearer ${{ github.token }}"             -H "Accept: application/vnd.github+json"             https://api.github.com/repos/${{ github.repository }}/deployments/${{ steps.dep.outputs.id }}/statuses             -d "{\"state\":\"$state\",\"environment\":\"${{ steps.t.outputs.env }}\",\"environment_url\":\"${{ steps.t.outputs.url }}\",\"description\":\"Render deploy $state\"}"
           [ "$state" = "success" ]
+
+      - name: Announce deploy via Slack Workflow
+        if: always()
+        run: |
+          state=$([ "${{ steps.wait.outputs.ok }}" = "true" ] && echo ":white_check_mark: succeeded" || echo ":x: failed")
+          curl -sf -X POST -H "Content-Type: application/json" \
+            "${{ secrets.SLACK_WORKFLOW_WEBHOOK }}" \
+            -d "{\"message\":\":rocket: *${{ github.repository }}* → *${{ steps.t.outputs.env }}* deploy $state — ${{ steps.t.outputs.url }} (commit ${{ github.sha }})\"}" \
+            || echo "Slack workflow webhook post failed (non-fatal)"
